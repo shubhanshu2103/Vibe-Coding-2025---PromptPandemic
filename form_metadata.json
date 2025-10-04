@@ -1,0 +1,160 @@
+{
+    "1105090331": {
+        "id": 1105090331,
+        "definition": {
+            "clarification": null,
+            "fields": [
+                {
+                    "name": "movie_title",
+                    "type": "text",
+                    "label": "Movie Title",
+                    "validation": "required"
+                },
+                {
+                    "name": "release_year",
+                    "type": "number",
+                    "label": "Release Year",
+                    "validation": "required"
+                },
+                {
+                    "name": "genre",
+                    "type": "text",
+                    "label": "Genre",
+                    "validation": "optional"
+                },
+                {
+                    "name": "rating",
+                    "type": "number",
+                    "label": "Rating (1-5)",
+                    "validation": "min_value:1,max_value:5,required"
+                }
+            ]
+        },
+        "prompt": "create a simple form about movies",
+        "created_at": "2025-10-04T21:07:51.680304"
+    },
+    "4475337762": {
+        "id": 4475337762,
+        "definition": {
+            "clarification": null,
+            "fields": [
+                {
+                    "name": "sport_type",
+                    "type": "text",
+                    "label": "What sport do you enjoy?",
+                    "validation": "required"
+                },
+                {
+                    "name": "favorite_team",
+                    "type": "text",
+                    "label": "Which team is your favorite in this sport?",
+                    "validation": "optional"
+                },
+                {
+                    "name": "played_since",
+                    "type": "date",
+                    "label": "When did you start playing this sport?",
+                    "validation": "required"
+                }
+            ]
+        },
+        "prompt": "create a form about sports",
+        "created_at": "2025-10-04T21:09:06.568001"
+    },
+    "1500590360": {
+        "id": 1500590360,
+        "definition": {
+            "clarification": null,
+            "fields": [
+                {
+                    "name": "book_title",
+                    "type": "text",
+                    "label": "Book Title",
+                    "validation": "required"
+                },
+                {
+                    "name": "author_name",
+                    "type": "text",
+                    "label": "Author Name",
+                    "validation": "required"
+                },
+                {
+                    "name": "genre",
+                    "type": "text",
+                    "label": "Genre (e.g., fiction, non-fiction, thriller)",
+                    "validation": "optional"
+                },
+                {
+                    "name": "publication_date",
+                    "type": "date",
+                    "label": "Publication Date",
+                    "validation": "required"
+                }
+            ]
+        },
+        "prompt": "create a form about books\n",
+        "created_at": "2025-10-04T21:21:46.368070"
+    },
+    "6217689830": {
+        "id": 6217689830,
+        "definition": {
+            "clarification": null,
+            "fields": [
+                {
+                    "name": "make",
+                    "type": "text",
+                    "label": "Car Make",
+                    "validation": "required"
+                },
+                {
+                    "name": "model",
+                    "type": "text",
+                    "label": "Car Model",
+                    "validation": "required"
+                },
+                {
+                    "name": "year",
+                    "type": "number",
+                    "label": "Year of Manufacture",
+                    "validation": "required"
+                },
+                {
+                    "name": "color",
+                    "type": "text",
+                    "label": "Car Color",
+                    "validation": "optional"
+                }
+            ]
+        },
+        "prompt": "create a from about cars",
+        "created_at": "2025-10-04T21:23:53.549407"
+    },
+    "1320363246": {
+        "id": 1320363246,
+        "definition": {
+            "clarification": null,
+            "fields": [
+                {
+                    "name": "masterclass_feedback",
+                    "type": "text",
+                    "label": "What did you think of the Masterclass?",
+                    "validation": "optional"
+                },
+                {
+                    "name": "satisfied_with_masterclass",
+                    "type": "checkbox",
+                    "label": "Were you satisfied with the Masterclass?",
+                    "validation": "required"
+                },
+                {
+                    "name": "additional_comments",
+                    "type": "text",
+                    "label": "Any additional comments or feedback?",
+                    "validation": "optional"
+                }
+            ]
+        },
+        "prompt": "create a form about feedback of masterclass",
+        "created_at": "2025-10-04T21:33:23.535528"
+    }
+}
