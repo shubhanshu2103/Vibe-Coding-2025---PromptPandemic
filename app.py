@@ -1,668 +1,426 @@
 import streamlit as st
-import pandas as pd
 import json
+import re
 import os
-import plotly.express as px
-from langchain_community.llms import Ollama
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser 
-import hashlib
-import time 
+import requests
+import hashlib 
+from langchain_community.chat_models import ChatOllama
+from langchain.schema import SystemMessage, HumanMessage
+from langchain.output_parsers import PydanticOutputParser
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
+from datetime import date 
+import pandas as pd # Ensure pandas is imported for DataFrame creation
 
-# --- CONFIGURATION ---
-METADATA_FILE = "form_metadata.json"
-ADMIN_PASS = "hackathon2025" 
+# --- Constants and Environment Setup ---
+# NOTE: GEMINI_API_KEY is retrieved from Streamlit Secrets or is empty string locally.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+LLM_MODEL_TO_USE = "gemini-2.5-flash-preview-05-20" if GEMINI_API_KEY else "llama3"
+LLM_BASE_URL = "http://localhost:11434"
 
-# Set page config FIRST - must be the very first Streamlit command
-st.set_page_config(page_title="Dynamic AI Form Builder", layout="wide")
-
-# --- UI STYLING & CUSTOM CSS (Keeping the original styling) ---
-
-CUSTOM_CSS = """
-<style>
-/* 1. Global Streamlit Overrides to match dark theme (New Tailwind Colors) */
-.stApp {
-    background-color: #101922; /* New Deep Navy Blue/Black */
-    color: #F0F8FF; /* Light Text */
-}
-/* Ensure main content background inherits the dark color */
-[data-testid="stDecoration"] {
-    background-color: #101922; 
-}
-/* Adjust markdown and main text color */
-.stMarkdown, h1, h2, h3, p {
-    color: #F0F8FF !important;
-}
-/* Adjust text color for specific Streamlit elements that rely on HMTL/CSS (e.g., labels) */
-.stTextInput label, .stNumberInput label, .stDateInput label, .stCheckbox label, .stSelectbox label {
-    color: #F0F8FF !important;
-}
-
-/* 2. Custom Header/Navigation Mock-up Styling */
-.header-container {
-    padding: 10px 0;
-    margin-bottom: 20px;
-    border-bottom: 1px solid rgba(17, 115, 212, 0.3); /* Based on primary/30 */
-}
-.logo-text {
-    font-size: 20px; /* Text-xl */
-    font-weight: 700;
-    color: #F0F8FF;
-}
-.logo-icon {
-    color: #1173d4; /* Primary color */
-}
-.nav-link {
-    color: #94A3B8; /* slate-400 */
-    padding: 8px 15px;
-    text-decoration: none;
-    font-weight: 500;
-    transition: color 0.2s;
-}
-.nav-link:hover {
-    color: #1173d4; /* Primary color hover */
-}
-
-/* 3. Form Creator Prompt Box Styling */
-[data-testid="stTextarea"] textarea {
-    background-color: transparent !important; 
-    border: none !important;
-    color: #F0F8FF !important;
-    min-height: 144px !important; 
-    padding: 1rem !important; 
-    box-shadow: none !important;
-}
-
-/* 4. Streamlit Button Styling */
-[data-testid="stFormSubmitButton"] > button, .stButton > button {
-    /* Styles from the HTML template's button class */
-    background-color: #1173d4 !important;
-    color: white !important;
-    height: 3rem !important; /* h-12 */
-    padding-left: 1.5rem !important;
-    padding-right: 1.5rem !important;
-    border-radius: 0.5rem !important;
-    font-weight: 700 !important;
-    transition: transform 0.1s;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* shadow-lg */
-}
-[data-testid="stFormSubmitButton"] > button:hover, .stButton > button:hover {
-    background-color: rgba(17, 115, 212, 0.9) !important; /* hover:bg-primary/90 */
-}
-[data-testid="stFormSubmitButton"] > button:active, .stButton > button:active {
-    transform: scale(0.95);
-}
-
-/* 5. Dashboard Card and Data Styling (New Styles from the provided HTML) */
-.dashboard-section-card {
-    background-color: rgba(16, 25, 34, 0.7); /* Custom semi-transparent background */
-    padding: 1.5rem;
-    border-radius: 0.5rem;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
-    margin-bottom: 2rem; 
-}
-.chart-inner-card {
-    background-color: #101922 !important; /* background-dark */
-    padding: 1.5rem;
-    border-radius: 0.5rem;
-    border: 1px solid #374151; /* gray-700 */
-    min-height: 300px; /* Ensure space for charts */
-}
-.ai-insights-card {
-    background-color: rgba(17, 115, 212, 0.2) !important;
-    padding: 1.5rem;
-    border-radius: 0.5rem;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-}
-[data-testid="stDataFrame"] {
-    border-radius: 0.5rem !important; 
-    border: 1px solid #374151 !important; /* gray-700 */
-    overflow-x: auto;
-}
-[data-testid="stDataFrame"] .row-header {
-    background-color: #1F2937 !important; /* gray-800 for the header row */
-    color: #9CA3AF !important; /* gray-400 text */
-    font-weight: 500;
-    text-transform: uppercase;
-    font-size: 0.75rem !important; /* text-xs */
-}
-[data-testid="stDataFrame"] .data-row {
-    background-color: #101922 !important; /* background-dark */
-    border-bottom: 1px solid #374151 !important; /* gray-700 divider */
-}
-[data-testid="stDataFrame"] .data-row > div {
-    color: #F0F8FF !important; /* white text */
-    font-size: 0.875rem !important; /* text-sm */
-}
-.stContainer {
-    background-color: transparent !important;
-    border-radius: 0;
-}
-</style>
-"""
-
-# Apply the custom CSS immediately
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
-
-# --- 1. DYNAMIC DATA PERSISTENCE FUNCTIONS (CSV & METADATA) ---
-
-def get_data_file_path(form_id: int) -> str:
-    """Returns the unique CSV file path for a given form ID."""
-    return f"form_data_{form_id}.csv"
-
-def load_data(form_id: int) -> pd.DataFrame:
-    """Loads submission data from the unique CSV file for a specific form_id, ensuring timestamp is parsed."""
-    data_file = get_data_file_path(form_id)
-    try:
-        if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
-            # --- FIX: Explicitly parse 'timestamp' column as datetime on load ---
-            df = pd.read_csv(data_file)
-            if 'timestamp' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-            return df
-    except pd.errors.EmptyDataError:
-        pass
-    except Exception:
-        pass
-    return pd.DataFrame()
-
-def append_data(form_id: int, data: dict):
-    """Appends a new submission to the unique CSV file for a specific form_id."""
-    data_file = get_data_file_path(form_id)
-    try:
-        df_new = pd.DataFrame([data])
-        write_header = not (os.path.exists(data_file) and os.path.getsize(data_file) > 0)
-        df_new.to_csv(data_file, mode='a', header=write_header, index=False)
-    except Exception as e:
-        st.error(f"Failed to save data to {data_file}: {e}")
-
-# --- METADATA FUNCTIONS (To track all created forms) ---
-
-def save_form_metadata(form_id: int, definition: dict, prompt: str):
-    """Saves the form definition, prompt, and ID to the metadata file."""
-    try:
-        if os.path.exists(METADATA_FILE):
-            with open(METADATA_FILE, 'r') as f:
-                metadata = json.load(f)
-        else:
-            metadata = {}
-    except:
-        metadata = {}
-
-    metadata[str(form_id)] = {
-        "id": form_id,
-        "definition": definition,
-        "prompt": prompt,
-        "created_at": pd.Timestamp.now().isoformat()
-    }
-
-    with open(METADATA_FILE, 'w') as f:
-        json.dump(metadata, f, indent=4)
-        
-def load_all_form_metadata() -> dict:
-    """Loads all form metadata (ID, prompt, definition) from the JSON file."""
-    try:
-        if os.path.exists(METADATA_FILE):
-            with open(METADATA_FILE, 'r') as f:
-                metadata = json.load(f)
-                return {int(k): v for k, v in metadata.items()}
-    except:
-        pass
-    return {}
-
-
-# --- 2. LLM CORE FUNCTIONS (AI Brains) ---
-
-JSON_SCHEMA = {
-    "clarification": "string | null (a message if the request is contradictory, otherwise null)",
-    "fields": [
-        {
-            "name": "string (snake_case name)",
-            "type": "string (e.g., text, email, number, date, checkbox)",
-            "label": "string (User-friendly label)",
-            "validation": "string (e.g., 'required', 'email_format', 'min_length:10' or 'optional')"
-        }
-    ]
-}
-
-def generate_form_json(user_request: str) -> dict:
-    """Uses Llama 3 to convert natural language into a structured form JSON."""
-    try:
-        llm = Ollama(model="llama3")
-    except Exception as e:
-        st.error(f"Failed to connect to Ollama (llama3). Is the server running? Error: {e}")
-        return None
-    
-    schema_string = json.dumps(JSON_SCHEMA, indent=2)
-    
-    system_prompt = """
-    You are a highly precise AI form builder. Your task is to analyze a user's request and output a form definition in the required JSON format.
-    RULES:
-    1. Always output a single, valid JSON object following this structure: {schema}.
-    2. Field names must be in snake_case.
-    3. Use appropriate types: 'text', 'email', 'number', 'date', 'checkbox'.
-    4. CRITICAL: If the user request contains a contradiction (e.g., "anonymous form but must include full name"), you MUST set the 'clarification' field to a message and set 'fields' to an empty list [].
-    Strictly adhere to the JSON format. Do not include any text before or after the JSON block.
-    """
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", "User's Form Request: {request}")
-    ])
-    
-    chain = prompt | llm | JsonOutputParser()
-    
-    try:
-        response_dict = chain.invoke({
-            "request": user_request, 
-            "schema": schema_string
-        })
-        return response_dict
-    except Exception as e:
-        st.error(f"LLM Processing Error during JSON generation: {e}")
-        st.info("Check if your Ollama server is running and the 'llama3' model is pulled.")
-        return None
-
-def generate_ai_insights(df: pd.DataFrame) -> str:
-    """Uses Llama 3 to analyze data text and generate key insights."""
-    try:
-        llm = Ollama(model="llama3")
-    except:
-        return "AI Insight generation failed: Could not connect to Ollama."
-        
-    data_summary = f"Total Submissions: {len(df)}\nColumns: {list(df.columns)}\n\n"
-    data_summary += "Value counts (Top 5 columns):\n"
-    for col in df.columns[:5]:
-        # Only include object or low-cardinality columns for value counts
-        if df[col].dtype == 'object' or df[col].nunique() < 10:
-            data_summary += f"- {col}: {df[col].value_counts().to_dict()}\n"
-    
-    system_prompt = """
-    You are an expert data analyst. Review the provided summary of form submission data and generate three concise, actionable, and high-level insights for an administrator.
-    Present your findings as a numbered list in Markdown format.
-    """
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", "Analyze this data summary: \n\n{summary}")
-    ])
-    chain = prompt | llm
-    try:
-        # Increase timeout slightly, as large LLM calls can take time
-        response_text = chain.invoke({"summary": data_summary}, config={'run_name': 'ai_insights_call'})
-        return response_text
-    except Exception as e:
-        return f"AI Insight generation failed during LLM call: {e}. Check Ollama logs."
-
-# --- 3. UI RENDERING FUNCTIONS ---
-
-def render_custom_header(current_page):
-    """Renders the custom header."""
-    col_logo, col_links, col_new_form, col_avatar = st.columns([1.5, 3, 1, 0.5])
-
-    with col_logo:
-        st.markdown("""
-            <div class="flex items-center gap-2">
-                <div class="size-6 logo-icon">
-                    <svg fill="none" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg"><path d="M4 4H17.3334V17.3334H30.6666V30.6666H44V44H4V4Z" fill="currentColor"></path></svg>
-                </div>
-                <h2 class="text-xl font-bold logo-text" style="color:white;">FormForge</h2>
-            </div>
-            """, unsafe_allow_html=True)
-
-    with col_links:
-        st.markdown("""
-            <div class="flex items-center gap-6 justify-start">
-                <a class="nav-link" href="#">Home</a>
-                <a class="nav-link" href="#">Templates</a>
-                <a class="nav-link" href="#">Examples</a>
-                <a class="nav-link" href="#">Pricing</a>
-            </div>
-            """, unsafe_allow_html=True)
-
-    with col_new_form:
-        if st.button("New Form", key="nav_new_form_stream", type="secondary", use_container_width=True):
-            st.session_state['page'] = "Form Creator (Public)"
-            st.rerun() 
-             
-    with col_avatar:
-        st.markdown("""
-            <div class="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-10" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuC3f0PEaY0Oeiae269K4ceGmthuuxozLXVbkxPx06nRL9zEweHJLn7l_vztkByKvdMG8h0HT3Jk998Xs7gH1bY118Amo28ZX9dY1z8cBZo4QqNCHzoKwqNf4en5CE5kqOB2MG7JLDhWFZ823IDkuSdZ3sPeNWyln5u-POIqA4i12R0SmmE7znB_JN-S9Qp8FW4DTSp-BYiR1NCtLbX88ChsvwkoxvkRhYnwWb_WcqUcHDc176jkK3hzPtOgvaPRWx1h3QWP297VFA");'></div>
-            """, unsafe_allow_html=True)
-
-    st.markdown('<div class="header-container"></div>', unsafe_allow_html=True)
-
-
-def render_form(form_id: int, data: dict):
-    """Dynamically renders a Streamlit form, handles submission, and stores data."""
-    
-    if data.get('clarification'):
-        st.warning("🚨 Contradiction Detected! Please clarify your request.")
-        st.info(data['clarification'])
-        return
-
-    st.markdown("""
-        <div class="w-full pt-10 border-t border-[#1173d4]/20 dark:border-[#1173d4]/30">
-        <h2 class="text-2xl font-bold text-white text-center">Generated Form</h2>
-        <p class="text-slate-400 text-center mt-2">Submit your data below. All entries are saved uniquely for this form.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    
-    # Store field keys and types for safe post-submission retrieval
-    field_keys = {}
-    
-    with st.container():
-        with st.form(key=f"dynamic_form_{form_id}", clear_on_submit=True):
-            
-            st.markdown(f"**Form ID (Unique Identifier):** `{form_id}`")
-
-            for i, field in enumerate(data.get('fields', [])):
-                field_name = field['name']
-                label = field['label']
-                field_type = field['type']
-                
-                # Create a hyper-unique key
-                key = f"form_{form_id}_{field_name}_{i}_{field_type}" 
-                field_keys[field_name] = {'key': key, 'type': field_type} # Store key AND type
-                
-                # Streamlit component rendering
-                if field_type == 'text' or field_type == 'email':
-                    st.text_input(label, key=key)
-                elif field_type == 'number':
-                    st.number_input(label, key=key, step=1, format="%d", value=0)
-                elif field_type == 'date':
-                    st.date_input(label, key=key)
-                elif field_type == 'checkbox':
-                    st.checkbox(label, key=key)
-            
-            submitted = st.form_submit_button("Submit Form", type="primary")
-            
-            if submitted:
-                final_submission = {}
-                
-                for field_name, info in field_keys.items():
-                    key = info['key']
-                    field_type = info['type']
-                    
-                    value = st.session_state.get(key)
-                    
-                    # Safely handle date conversion and None values
-                    if field_type == 'date' and value is not None:
-                        value = value.isoformat()
-                    elif value is None and (field_type == 'text' or field_type == 'email'):
-                        value = ""
-                    
-                    final_submission[field_name] = value
-                
-                # Add metadata fields
-                final_submission['form_id'] = form_id 
-                final_submission['timestamp'] = pd.Timestamp.now().isoformat()
-                
-                # Use the verified data for submission
-                append_data(form_id, final_submission)
-                st.success(f"Form Submitted Successfully! Data Saved to file: form_data_{form_id}.csv")
-
-def render_dashboard():
-    """Renders the Admin Dashboard with form selection and analytics for the selected form."""
-    
-    st.markdown("""
-        <div class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Data Insights Dashboard</h1>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    all_forms_metadata = load_all_form_metadata()
-    if not all_forms_metadata:
-        st.warning("No forms have been generated yet. Create one in the Form Creator view to see analytics.")
-        return
-    
-    # Create options for the selectbox: Display (Prompt...) -> Internal ID
-    form_options = {
-        f"ID: {meta['id']} | Prompt: {meta['prompt'][:50]}... (Created: {meta['created_at'][:10]})" : meta['id']
-        for meta in all_forms_metadata.values()
-    }
-    
-    # 1. Form Selector
-    st.markdown('<div class="dashboard-section-card">', unsafe_allow_html=True)
-    st.markdown('<h2 class="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Select Form to Analyze</h2>', unsafe_allow_html=True)
-    
-    selected_key = st.selectbox("Choose a generated form:", list(form_options.keys()), key="dashboard_form_select", label_visibility="collapsed")
-    
-    selected_form_id = form_options[selected_key]
-    
-    st.markdown(f"Analyzing data for **Form ID: {selected_form_id}**")
-    st.markdown('</div>', unsafe_allow_html=True) # Close dashboard-section-card
-    
-    # 2. Load Data for the SELECTED ID
-    df = load_data(selected_form_id)
-    
-    if df.empty:
-        st.info("The selected form has no submissions yet.")
-        return
-
-    # --- Data Overview Card ---
-    st.markdown('<div class="dashboard-section-card">', unsafe_allow_html=True)
-    st.markdown('<h2 class="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Latest Submissions</h2>', unsafe_allow_html=True)
-    st.dataframe(df.tail(10), use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True) 
-
-    # --- Charts Section Card ---
-    st.markdown('<div class="dashboard-section-card">', unsafe_allow_html=True)
-    st.markdown('<h2 class="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Charts</h2>', unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    chart_cols = [col for col in df.columns if col not in ['timestamp', 'date', 'form_id']] 
-    
-    # Chart 1: Distribution
-    with col1:
-        st.markdown('<div class="chart-inner-card">', unsafe_allow_html=True)
-        st.markdown('<h3 class="text-base font-medium mb-4 text-gray-900 dark:text-white">Field Distribution</h3>', unsafe_allow_html=True)
-        if chart_cols:
-            chart_choice = st.selectbox("Select a field for distribution:", chart_cols, key="chart_select_1", label_visibility="collapsed")
-            
-            if df[chart_choice].dtype == 'object' or df[chart_choice].nunique() < 10:
-                count_data = df[chart_choice].value_counts().reset_index()
-                count_data.columns = [chart_choice, 'Count']
-                
-                fig = px.pie(
-                    count_data, values='Count', names=chart_choice, title=f'Distribution of {chart_choice}',
-                    hole=.3, color_discrete_sequence=px.colors.sequential.Agsunset
-                )
-                fig.update_layout(
-                    paper_bgcolor='#101922', plot_bgcolor='#101922', font_color='white',
-                    margin=dict(l=10, r=10, t=40, b=10), showlegend=True
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
-            elif pd.api.types.is_numeric_dtype(df[chart_choice]):
-                fig = px.histogram(df, x=chart_choice, title=f'Distribution of {chart_choice}', 
-                                   color_discrete_sequence=['#1173d4'])
-                fig.update_layout(
-                    paper_bgcolor='#101922', plot_bgcolor='#101922', font_color='white',
-                    bargap=0.2, margin=dict(l=10, r=10, t=40, b=10)
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No analyzable fields found in this form.")
-        st.markdown('</div>', unsafe_allow_html=True) 
-
-    # Chart 2: Time Series
-    with col2:
-        st.markdown('<div class="chart-inner-card">', unsafe_allow_html=True)
-        st.markdown('<h3 class="text-base font-medium mb-4 text-gray-900 dark:text-white">Form Submissions Over Time</h3>', unsafe_allow_html=True)
-        
-        # --- FIX: df['timestamp'] is now guaranteed to be datetime objects (or NaT) from load_data ---
-        if 'timestamp' in df.columns and not df.empty and not df['timestamp'].isnull().all():
-            
-            # Use .dt.date to strip time component and aggregate submissions per day
-            df['date'] = df['timestamp'].dt.date
-            daily_submissions = df.groupby('date').size().reset_index(name='Submissions')
-            
-            fig = px.area(
-                daily_submissions, x='date', y='Submissions', 
-                title='Daily Submission Trend',
-                line_shape='spline',
-                color_discrete_sequence=['#1173d4']
-            )
-            fig.update_layout(
-                paper_bgcolor='#101922', plot_bgcolor='#101922', font_color='white',
-                margin=dict(l=10, r=10, t=40, b=10), xaxis_title="Date", yaxis_title="Count"
-            )
-            fig.update_xaxes(showgrid=False)
-            fig.update_yaxes(gridcolor='#374151')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-             st.info("Timestamp data required for trend analysis (or all submissions lack valid timestamps).")
-
-        st.markdown('</div>', unsafe_allow_html=True) 
-    st.markdown('</div>', unsafe_allow_html=True) 
-
-
-    # --- AI Insights Card ---
-    st.markdown('<div class="ai-insights-card">', unsafe_allow_html=True)
-    st.markdown('<h2 class="text-xl font-semibold mb-4 text-gray-900 dark:text-white">AI Insights</h2>', unsafe_allow_html=True)
-    with st.spinner('Analyzing data and generating insights with Llama 3...'):
-        insights = generate_ai_insights(df)
-        st.markdown(insights)
-    st.markdown('</div>', unsafe_allow_html=True) 
-
-
-def check_password_main_body(key_prefix):
-    """Simple password check for the admin dashboard access, rendered in the main body."""
-    if 'password_correct' not in st.session_state:
-        st.session_state['password_correct'] = False
-        
-    st.markdown("## Admin Login")
-    password = st.text_input("Password", type="password", key=f"{key_prefix}_password")
-    
-    login_button = st.button("Access Dashboard", key=f"{key_prefix}_login_button", type="primary")
-
-    if login_button or (password == ADMIN_PASS and not st.session_state['password_correct']):
-        if password == ADMIN_PASS:
-            st.session_state['password_correct'] = True
-            st.success("Access Granted! Redirecting to dashboard...")
-            st.session_state['page'] = "Admin Dashboard (Private)"
-            st.rerun()
-        elif password:
-            st.error("Incorrect Password")
-            st.session_state['password_correct'] = False
-        
-    return st.session_state['password_correct']
-
-# --- 4. MAIN APPLICATION LOGIC (Routing) ---
-
-# Remove default Streamlit header/footer
-hide_st_style = """
-<style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-</style>
-"""
-st.markdown(hide_st_style, unsafe_allow_html=True)
-
-# Initialize page state
+# --- Page Navigation State ---
 if 'page' not in st.session_state:
-    st.session_state['page'] = "Form Creator (Public)"
+    st.session_state.page = 'HOME'
+if 'form_data_json' not in st.session_state:
+    st.session_state.form_data_json = None
 if 'current_form_id' not in st.session_state:
-    st.session_state['current_form_id'] = None
-
-# Render the custom header mock-up
-render_custom_header(st.session_state.get('page'))
-
-
-# Navigation radio button
-st.markdown("## Navigation", unsafe_allow_html=True)
-page = st.radio(
-    "Select View:", 
-    ["Form Creator (Public)", "Admin Dashboard (Private)"], 
-    key="main_navigation_radio",
-    index=0 if st.session_state.get('page') == "Form Creator (Public)" else 1,
-    horizontal=True
-)
-
-# Update session state based on radio selection
-if page != st.session_state.get('page'):
-    st.session_state['page'] = page
-    st.rerun()
-
+    st.session_state.current_form_id = None
+if 'submissions_db' not in st.session_state:
+    st.session_state['submissions_db'] = {}
     
-# --- Content Rendering ---
+def set_page(page_name):
+    st.session_state.page = page_name
 
-if st.session_state['page'] == "Form Creator (Public)":
+# --- Firestore Mock/Integration Placeholder (using session state) ---
+def get_form_collection_path(form_id: str) -> str:
+    """Generates a pseudo-unique path for form submission data."""
+    return f"form_submissions/{form_id}"
+
+def save_form_submission(form_id: str, data: dict):
+    """Simulates saving data to Firestore using a unique ID for the collection."""
+    path = get_form_collection_path(form_id)
+    if path not in st.session_state['submissions_db']:
+        st.session_state['submissions_db'][path] = []
     
-    st.markdown("""
-    <div class="flex flex-col items-center gap-10">
-        <div class="text-center">
-            <h1 class="text-4xl md:text-5xl font-bold text-white tracking-tight">Craft Your Perfect Form</h1>
-            <p class="mt-4 text-lg text-slate-400">Describe the form you need, and we'll generate it for you.</p>
-        </div>
-        <div class="w-full max-w-4xl mx-auto p-2" style="background: linear-gradient(to right, #1173d4, #1173d4, rgba(17, 115, 212, 0.2)); border-radius: 0.75rem; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);">
-            <div style="background-color: #101922; border-radius: 0.5rem; padding: 0.5rem;">
-    """, unsafe_allow_html=True)
+    submission = {"timestamp": str(date.today()), **data} # Use str(date.today()) for serialization
+    st.session_state['submissions_db'][path].append(submission)
+
+def get_all_submissions(form_id: str) -> List[dict]:
+    """Retrieves all submissions for a specific form ID."""
+    path = get_form_collection_path(form_id)
+    return st.session_state.get('submissions_db', {}).get(path, [])
+
+
+# --- 1. Pydantic Schema for Structured Output ---
+
+class FieldDefinition(BaseModel):
+    """A single field definition for the generated form."""
+    name: str = Field(description="The unique, snake_case name for the field (e.g., 'full_name').")
+    label: str = Field(description="The human-readable label for the field (e.g., 'Full Name').")
+    type: str = Field(description="The input type (choose from: 'text', 'email', 'number', 'date', 'password', 'radio', 'checkbox', 'selectbox', 'textarea').")
+    validation: str = Field(description="Comma-separated validation rules (e.g., 'required', 'email_format', 'min_length:5'). Use 'optional' if no strict rules apply.")
+    options: Optional[List[str]] = Field(default=None, description="List of options for 'radio' or 'selectbox' types. Null otherwise.")
+
+class FormSchema(BaseModel):
+    """The root schema containing either the fields or a clarification message."""
+    clarification: Optional[str] = Field(default=None, description="A message if the request is contradictory (e.g., anonymous but requires email). Should be null if fields are present.")
+    fields: Optional[List[FieldDefinition]] = Field(default=None, description="List of fields if the request is valid. Null if clarification is present.")
+
+
+# --- 2. Prompt Engineering and LLM Integration ---
+
+parser = PydanticOutputParser(pydantic_object=FormSchema)
+format_instructions = parser.get_format_instructions()
+
+SYSTEM_PROMPT = f"""
+You are a highly specialized AI assistant for building forms. Your task is to analyze a user's request for a form and output the form's schema in a precise JSON format that strictly conforms to the provided schema.
+
+--- INSTRUCTION SET ---
+1. STRICT JSON FORMAT: You MUST return a single JSON object that perfectly adheres to this schema. DO NOT include any introductory text, commentary, or markdown fences.
+{format_instructions}
+
+2. CONTRADICTION HANDLING: If the user's request is contradictory (e.g., asking for an anonymous form that requires personal details) or logically unsound:
+    a. Set the 'clarification' field to a polite, clear sentence asking the user to resolve the conflict.
+    b. Set the 'fields' field to null.
+
+3. FIELD GENERATION: If the request is valid:
+    a. Set the 'clarification' field to null.
+    b. Generate the 'fields' list according to the schema. Infer the best 'type' and 'validation' based on the label.
+
+Generate the JSON for the user's current request based on these instructions.
+"""
+
+@st.cache_data(show_spinner=f"Generating form structure with {LLM_MODEL_TO_USE.upper()}...")
+def generate_form_json(prompt: str) -> str:
+    """Invokes the appropriate LLM (local or cloud) to generate a structured JSON string."""
+    full_prompt = SYSTEM_PROMPT + f"\nUser Request: {prompt}"
+
+    if GEMINI_API_KEY:
+        # --- CLOUD DEPLOYMENT (GEMINI API) ---
+        return call_gemini_api(full_prompt)
+    else:
+        # --- LOCAL DEVELOPMENT (OLLAMA) ---
+        return call_ollama_local(full_prompt)
+
+def call_gemini_api(prompt_text: str) -> str:
+    """Makes a request to the Gemini API for structured JSON output."""
+    try:
+        # Use the requests library for a clean, non-LangChain connection to the public API endpoint
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent"
+        headers = {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY
+        }
+        
+        # Use the response schema for structured output (more reliable than just prompt instructions)
+        payload = {
+            "contents": [{"parts": [{"text": prompt_text}]}],
+            "config": {
+                "responseMimeType": "application/json",
+                "responseSchema": FormSchema.model_json_schema()
+            }
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        
+        # Extract the JSON string from the response
+        result = response.json()
+        if result.get('candidates') and result['candidates'][0].get('content'):
+             # The result should be a valid JSON string compliant with the schema
+            json_text = result['candidates'][0]['content']['parts'][0]['text']
+            return json_text
+
+        return json.dumps({"clarification": "Cloud API returned an unexpected response structure. Check API key permissions."})
+        
+    except requests.exceptions.RequestException as e:
+        return json.dumps({"clarification": f"Cloud API Connection Error (Gemini): {e}"})
+    except Exception as e:
+        return json.dumps({"clarification": f"Gemini API Response Error: {e}"})
+
+def call_ollama_local(prompt_text: str) -> str:
+    """Makes a request to the local Ollama server."""
+    try:
+        llm = ChatOllama(model=LLM_MODEL_TO_USE, temperature=0.0, format="json", base_url=LLM_BASE_URL)
+        messages = [HumanMessage(content=prompt_text)]
+        response = llm.invoke(messages)
+        return response.content
+    except Exception as e:
+        # This error path is critical for local development, but in cloud it means certain failure.
+        return json.dumps({"clarification": f"Ollama Local Error: Is the server running? Error: {e}"})
+
+
+# --- UTILITY FUNCTION FOR CLEANING LLM OUTPUT ---
+
+def clean_json_output(text: str) -> str:
+    """Removes leading/trailing text and markdown fences (```json) from LLM output."""
+    # Aggressively try to find the JSON object boundaries
+    match = re.search(r"```json\s*([\s\S]*?)\s*```", text)
+    if match:
+        return match.group(1).strip()
     
+    try:
+        start = text.index('{')
+        end = text.rindex('}') + 1
+        return text[start:end]
+    except ValueError:
+        return text 
+
+# --- 3. Dynamic UI Rendering Functions (Shared Validation) ---
+
+def perform_validation(form_id: str, data: FormSchema) -> Dict[str, Any]:
+    """Collects submitted data and performs client-side validation."""
+    
+    # Re-collect values after submission using unique widget keys
+    # Use Dict comprehension with get for safety, as some inputs might not exist post-submission
+    submitted_data = {
+        f.name: st.session_state.get(f"{form_id}_{f.name}")
+        for f in data.fields if f.name in st.session_state
+    }
+    errors = []
+    
+    for field in data.fields:
+        rules = [r.strip() for r in field.validation.split(',')]
+        value = submitted_data.get(field.name)
+        str_value = str(value).strip() if value is not None and value is not date.today() else "" # Prevent date from being counted as empty string
+
+        # Rule 1: Required check
+        if "required" in rules and not str_value:
+            errors.append(f"❌ {field.label} is required.")
+            continue
+        
+        if value is None and "required" in rules:
+             errors.append(f"❌ {field.label} is required.")
+             continue
+
+
+        if str_value:
+            # Rule 2: Email format check
+            if "email_format" in rules or field.type == 'email':
+                if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", str_value):
+                    errors.append(f"❌ {field.label} requires a valid email format.")
+
+            # Rule 3 & 4: Length checks
+            for rule in rules:
+                if rule.startswith("min_length:"):
+                    try:
+                        min_len = int(rule.split(':')[1])
+                        if len(str_value) < min_len:
+                            errors.append(f"❌ {field.label} must be at least {min_len} characters long.")
+                    except ValueError: pass
+                
+                if rule.startswith("exact_length:"):
+                    try:
+                        exact_len = int(rule.split(':')[1])
+                        len_to_check = len(str_value.replace('.', '', 1)) if field.type == 'number' else len(str_value)
+                        if len_to_check != exact_len: 
+                            errors.append(f"❌ {field.label} must be exactly {exact_len} characters long.")
+                    except ValueError: pass
+                        
+            # Rule 5: Number only check 
+            if "number_only" in rules:
+                if not str_value.replace('.', '', 1).isdigit():
+                    errors.append(f"❌ {field.label} must contain only numeric digits.")
+                    
+    return {"errors": errors, "data": submitted_data}
+
+def draw_form_widgets(form_id: str, data: FormSchema):
+    """Draws the actual Streamlit widgets based on the parsed schema."""
+    for field in data.fields:
+        key = field.name
+        label = field.label
+        widget_key = f"{form_id}_{key}" 
+
+        # Handle different field types
+        if field.type in ['text', 'email', 'password']:
+            st.text_input(label, type=field.type if field.type == 'password' else 'default', key=widget_key)
+        elif field.type == 'textarea':
+            st.text_area(label, key=widget_key)
+        elif field.type == 'number':
+            # Use st.number_input with specific steps
+            st.number_input(label, step=1, key=widget_key)
+        elif field.type == 'date':
+            # Note: Default value is date.today() which must be imported
+            st.date_input(label, key=widget_key, value=date.today())
+        elif field.type == 'radio' and field.options:
+            st.radio(label, field.options, key=widget_key)
+        elif field.type == 'selectbox' and field.options:
+            st.selectbox(label, field.options, key=widget_key)
+        elif field.type == 'checkbox':
+            st.checkbox(label, key=widget_key)
+
+def render_live_form():
+    """Renders the final, live, submission-ready form (Google Forms Style)."""
+    form_id = st.session_state.current_form_id
+    json_data = st.session_state.form_data_json
+    
+    if not form_id or not json_data:
+        st.error("No form data found. Please generate or load a form first.")
+        return
+        
+    try:
+        # Re-parse data for safety
+        data = FormSchema.model_validate_json(clean_json_output(json_data))
+        
+        st.title(f"Live Form View (ID: {form_id[:8]}...)")
+        st.markdown("---")
+        st.subheader("Please fill out this form.")
+        
+        with st.form(key=f"live_form_{form_id}"):
+            # Draw the widgets based on the stored schema
+            draw_form_widgets(form_id, data)
+
+            submitted = st.form_submit_button("Submit Your Response", type="primary")
+
+            if submitted:
+                validation_result = perform_validation(form_id, data)
+                
+                if validation_result['errors']:
+                    st.error("Please correct the following errors before submitting:")
+                    for error in validation_result['errors']:
+                        st.write(error)
+                else:
+                    st.success("Thank you! Your response has been saved.")
+                    save_form_submission(form_id, validation_result['data'])
+                    st.toast("Data saved successfully!")
+                    
+    except Exception as e:
+        st.error(f"Error rendering live form: {e}")
+
+
+# --- Form Generation/Editing Stage ---
+
+def render_form_editor():
+    """Renders the editor view, showing LLM output and submissions."""
+    st.header("✍️ Form Editor & Analytics")
+    st.caption("Review the generated JSON, make manual adjustments, and track submissions.")
+
+    form_id = st.session_state.current_form_id
+    json_data = st.session_state.form_data_json
+    
+    cols = st.columns([1, 1, 3])
+    with cols[0]:
+        st.button("↩️ Back to Generator", on_click=set_page, args=('HOME',))
+    with cols[1]:
+        st.button("🚀 Publish Live Form", on_click=set_page, args=('LIVE',), type="primary")
+    
+    st.markdown("---")
+
+    col_json, col_preview = st.columns(2)
+
+    with col_json:
+        st.subheader("Generated JSON Schema")
+        # Allow manual editing of the generated schema
+        edited_json = st.text_area(
+            "Edit Schema JSON:",
+            value=clean_json_output(json_data),
+            height=400,
+            key='edited_json_input'
+        )
+        
+        if st.button("Apply Changes & Update Preview"):
+            try:
+                # Validate the edited JSON structure against the Pydantic schema
+                FormSchema.model_validate_json(edited_json)
+                st.session_state.form_data_json = edited_json # Save validated JSON
+                st.success("Schema updated! Preview on the right reflects changes.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Invalid JSON Schema: {e}")
+
+    with col_preview:
+        st.subheader("Live Preview")
+        st.caption("The form will look and behave like this when published.")
+        
+        try:
+            preview_schema = FormSchema.model_validate_json(clean_json_output(st.session_state.form_data_json))
+            
+            with st.form(key=f"preview_form_{form_id}"):
+                draw_form_widgets(form_id, preview_schema)
+                st.form_submit_button("Preview Submit (No Save)", disabled=True)
+                
+            st.markdown("---")
+            st.subheader("Submissions Data")
+            all_submissions = get_all_submissions(form_id)
+            if all_submissions:
+                df = pd.DataFrame(all_submissions)
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.info("No submissions yet for this form.")
+            
+        except Exception:
+            st.error("Cannot render preview. Please fix JSON syntax in the editor.")
+            st.code(st.session_state.form_data_json)
+
+
+# --- Form Generation Stage ---
+
+def render_home_generator():
+    """Renders the initial form generation interface."""
+    st.header("🔮 Natural Language Form Generator")
+    
+    if st.session_state.current_form_id:
+        st.button(f"➡️ Go to Editor (ID: {st.session_state.current_form_id[:8]}...)", 
+                  on_click=set_page, args=('EDIT',))
+    
+    # Display the current mode
+    if GEMINI_API_KEY:
+        st.info(f"Deployment Mode: **Cloud (Gemini API)**. Ready for external sharing!")
+    else:
+        st.warning(f"Deployment Mode: **Local ({LLM_MODEL_TO_USE})**. Ensure `ollama serve` is running for use.")
+
+
+    # Input area for the user's request
     user_prompt = st.text_area(
-        "Prompt Area:",
-        placeholder="e.g., 'A modern registration form with fields for name, email, and password.'",
+        "Describe your form here:",
+        placeholder="e.g., A registration form for new club members with name, email, and favorite anime.",
         height=100,
-        label_visibility="collapsed",
         key="user_prompt_input"
     )
-    
-    st.markdown("""
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col_button_left, col_button_center, col_button_right = st.columns([1, 2.5, 1])
 
-    with col_button_center:
-        if st.button("Generate Form", type="secondary", key="generate_form_button_main", use_container_width=True):
-            if user_prompt:
-                st.session_state.pop('form_definition', None)
-                st.session_state.pop('current_form_id', None)
-                
-                with st.spinner('Generating form definition using Llama 3...'):
-                    form_definition = generate_form_json(user_prompt)
-                
-                if form_definition and not form_definition.get('clarification'):
-                    # Generate unique ID based on the JSON structure
-                    json_string = json.dumps(form_definition, sort_keys=True).encode('utf-8')
-                    form_id = int(hashlib.sha256(json_string).hexdigest(), 16) % (10**10) 
-                    
-                    st.session_state['current_form_id'] = form_id
-                    st.session_state['form_definition'] = form_definition
-                    
-                    # Save the form metadata
-                    save_form_metadata(form_id, form_definition, user_prompt)
-                    
-                elif form_definition and form_definition.get('clarification'):
-                    st.session_state['form_definition'] = form_definition
-            else:
-                st.error("Please enter a form description.")
+    # --- Generate Form ID based on Prompt ---
+    user_prompt_clean = user_prompt.strip()
+    form_id = hashlib.sha256(user_prompt_clean.encode('utf-8')).hexdigest() if user_prompt_clean else None
     
-    # Render the generated form
-    if ('form_definition' in st.session_state and st.session_state['form_definition'] and 
-        'current_form_id' in st.session_state and st.session_state['current_form_id']):
-        render_form(st.session_state['current_form_id'], st.session_state['form_definition'])
+    # The "Generate" button to trigger the process
+    if st.button("Generate Form", type="primary", disabled=not user_prompt_clean):
+        st.session_state.current_form_id = form_id
+        
+        # 1. Clear cached LLM data if the prompt has changed
+        st.cache_data.clear()
 
-elif st.session_state['page'] == "Admin Dashboard (Private)":
+        # 2. Call the LLM function and store the result
+        json_result = generate_form_json(user_prompt_clean)
+        st.session_state.form_data_json = json_result
+        
+        # 3. Move to the Edit page automatically
+        set_page('EDIT')
+        st.rerun()
+
+# --- Main Routing ---
+
+def main_router():
+    """Controls which interface is displayed based on session state."""
     
-    if st.session_state.get('password_correct'):
-        render_dashboard()
-    else:
-        st.markdown(
-            """
-            <div class="mt-8 p-8 max-w-md mx-auto dashboard-section-card">
-                <h2 class="text-2xl font-bold mb-4 text-white">Admin Dashboard Access Required</h2>
-                <p class="text-slate-400 mb-6">Enter the administrative password to view the data insights.</p>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
-        with st.container():
-            col_left, col_center, col_right = st.columns([1, 2, 1])
-            with col_center:
-                check_password_main_body("dashboard_login")
+    st.sidebar.title("App Navigation")
+    st.sidebar.button("Home (Generator)", on_click=set_page, args=('HOME',))
+    if st.session_state.current_form_id:
+        st.sidebar.button("Editor/Analytics", on_click=set_page, args=('EDIT',))
+        st.sidebar.button("Live Form View", on_click=set_page, args=('LIVE',))
+
+    if st.session_state.page == 'HOME':
+        render_home_generator()
+    elif st.session_state.page == 'EDIT':
+        if st.session_state.form_data_json:
+            render_form_editor()
+        else:
+            # Fallback if somehow landed here without data
+            set_page('HOME')
+            st.rerun()
+    elif st.session_state.page == 'LIVE':
+        render_live_form()
+    
+    
+if __name__ == "__main__":
+    main_router()
+```
