@@ -29,8 +29,8 @@ FormForge is an intelligent form generation application that uses AI to create d
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/formforge.git
-   cd formforge
+   git clone https://github.com/yourusername/Vibe-Coding-2025---PromptPandemic.git
+   cd Vibe-Coding-2025---PromptPandemic
    ```
 
 2. Install required packages:
