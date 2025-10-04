@@ -1,3 +1,5 @@
+title: PromptPandemic Dynamic Form Builder emoji: 🧙‍♀️ colorFrom: pink colorTo: purple sdk: streamlit sdk_version: 1.36.0 app_file: app.py pinned: false
+PromptPandemic Dynamic Form Builder
 # 🧙‍♂️ PromptPandemic Dynamic Form Builder
 
 **Build. Bond. Breakthrough.** (Vibe Coding Hackathon Entry)
