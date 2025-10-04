@@ -10,12 +10,19 @@ from langchain.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import date 
-import pandas as pd # Ensure pandas is imported for DataFrame creation
+import pandas as pd
 
 # --- Constants and Environment Setup ---
-# NOTE: GEMINI_API_KEY is retrieved from Streamlit Secrets or is empty string locally.
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-LLM_MODEL_TO_USE = "gemini-2.5-flash-preview-05-20" if GEMINI_API_KEY else "llama3"
+# CRITICAL FIX: Set LLM_MODEL_TO_USE based on OS check, not immediate API key check
+# This ensures the app starts even if the secret hasn't fully loaded/registered
+if 'GEMINI_API_KEY' in os.environ and os.environ['GEMINI_API_KEY']:
+    GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
+    LLM_MODEL_TO_USE = "gemini-2.5-flash-preview-05-20"
+else:
+    # Local/Fallback mode
+    GEMINI_API_KEY = ""
+    LLM_MODEL_TO_USE = "llama3" 
+
 LLM_BASE_URL = "http://localhost:11434"
 
 # --- Page Navigation State ---
@@ -42,7 +49,7 @@ def save_form_submission(form_id: str, data: dict):
     if path not in st.session_state['submissions_db']:
         st.session_state['submissions_db'][path] = []
     
-    submission = {"timestamp": str(date.today()), **data} # Use str(date.today()) for serialization
+    submission = {"timestamp": str(date.today()), **data} 
     st.session_state['submissions_db'][path].append(submission)
 
 def get_all_submissions(form_id: str) -> List[dict]:
@@ -100,19 +107,18 @@ def generate_form_json(prompt: str) -> str:
         return call_gemini_api(full_prompt)
     else:
         # --- LOCAL DEVELOPMENT (OLLAMA) ---
+        # Note: This path should not be hit on the cloud but is the fast path for local testing.
         return call_ollama_local(full_prompt)
 
 def call_gemini_api(prompt_text: str) -> str:
     """Makes a request to the Gemini API for structured JSON output."""
     try:
-        # Use the requests library for a clean, non-LangChain connection to the public API endpoint
         url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent"
         headers = {
             'Content-Type': 'application/json',
             'x-goog-api-key': GEMINI_API_KEY
         }
         
-        # Use the response schema for structured output (more reliable than just prompt instructions)
         payload = {
             "contents": [{"parts": [{"text": prompt_text}]}],
             "config": {
@@ -124,29 +130,27 @@ def call_gemini_api(prompt_text: str) -> str:
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         
-        # Extract the JSON string from the response
         result = response.json()
         if result.get('candidates') and result['candidates'][0].get('content'):
-             # The result should be a valid JSON string compliant with the schema
             json_text = result['candidates'][0]['content']['parts'][0]['text']
             return json_text
 
-        return json.dumps({"clarification": "Cloud API returned an unexpected response structure. Check API key permissions."})
+        return json.dumps({"clarification": "Cloud API returned an unexpected response structure or was blocked. Check API key status."})
         
     except requests.exceptions.RequestException as e:
-        return json.dumps({"clarification": f"Cloud API Connection Error (Gemini): {e}"})
+        return json.dumps({"clarification": f"Cloud API Connection Error (Gemini): The service is currently inaccessible. Check API key status. Error: {e}"})
     except Exception as e:
         return json.dumps({"clarification": f"Gemini API Response Error: {e}"})
 
 def call_ollama_local(prompt_text: str) -> str:
     """Makes a request to the local Ollama server."""
     try:
+        # Instantiating here instead of globally prevents startup crashes
         llm = ChatOllama(model=LLM_MODEL_TO_USE, temperature=0.0, format="json", base_url=LLM_BASE_URL)
         messages = [HumanMessage(content=prompt_text)]
         response = llm.invoke(messages)
         return response.content
     except Exception as e:
-        # This error path is critical for local development, but in cloud it means certain failure.
         return json.dumps({"clarification": f"Ollama Local Error: Is the server running? Error: {e}"})
 
 
@@ -154,7 +158,6 @@ def call_ollama_local(prompt_text: str) -> str:
 
 def clean_json_output(text: str) -> str:
     """Removes leading/trailing text and markdown fences (```json) from LLM output."""
-    # Aggressively try to find the JSON object boundaries
     match = re.search(r"```json\s*([\s\S]*?)\s*```", text)
     if match:
         return match.group(1).strip()
@@ -171,8 +174,6 @@ def clean_json_output(text: str) -> str:
 def perform_validation(form_id: str, data: FormSchema) -> Dict[str, Any]:
     """Collects submitted data and performs client-side validation."""
     
-    # Re-collect values after submission using unique widget keys
-    # Use Dict comprehension with get for safety, as some inputs might not exist post-submission
     submitted_data = {
         f.name: st.session_state.get(f"{form_id}_{f.name}")
         for f in data.fields if f.name in st.session_state
@@ -182,7 +183,7 @@ def perform_validation(form_id: str, data: FormSchema) -> Dict[str, Any]:
     for field in data.fields:
         rules = [r.strip() for r in field.validation.split(',')]
         value = submitted_data.get(field.name)
-        str_value = str(value).strip() if value is not None and value is not date.today() else "" # Prevent date from being counted as empty string
+        str_value = str(value).strip() if value is not None and value is not date.today() else ""
 
         # Rule 1: Required check
         if "required" in rules and not str_value:
@@ -237,10 +238,8 @@ def draw_form_widgets(form_id: str, data: FormSchema):
         elif field.type == 'textarea':
             st.text_area(label, key=widget_key)
         elif field.type == 'number':
-            # Use st.number_input with specific steps
             st.number_input(label, step=1, key=widget_key)
         elif field.type == 'date':
-            # Note: Default value is date.today() which must be imported
             st.date_input(label, key=widget_key, value=date.today())
         elif field.type == 'radio' and field.options:
             st.radio(label, field.options, key=widget_key)
