@@ -1,6 +1,67 @@
-# FormForge - AI-Powered Dynamic Form Builder
+# 🧙‍♂️ PromptPandemic Dynamic Form Builder
 
-FormForge is an intelligent form generation application that uses AI to create dynamic forms from natural language descriptions. Built with Streamlit and powered by Llama 3 via Ollama, this application allows users to describe the form they need in plain English and instantly generates a functional form with appropriate validation.
+**Build. Bond. Breakthrough.** (Vibe Coding Hackathon Entry)
+
+This project is an AI-first application built for the PromptPandemic Vibe Coding Hackathon. It demonstrates the ability to translate unstructured natural language requests into a strictly structured, functional web form instantly.
+
+## ✨ Innovation: Natural Language to Structured UI
+
+The core innovation is connecting a local Large Language Model (LLama 3) to a dynamic UI generator (Streamlit) using Pydantic for schema enforcement. This allows the system to:
+
+- **Generate Forms**: Convert descriptions like "A club sign-up form with name, email, and t-shirt size options" into a working web form.
+
+- **Handle Contradictions**: Detect logical flaws in the user's request (e.g., "anonymous, but collect a phone number") and politely ask for clarification instead of failing.
+
+- **Dynamic Validation**: Infer validation rules (required, min_length, email_format) from the prompt and enforce them client-side.
+
+## 🛠 Setup Guide (For Forkers/Collaborators)
+
+This application is designed to run completely locally using your machine's GPU for inference (Apple Silicon M-series recommended).
+
+### Prerequisites
+
+You must have the following installed:
+
+- Python 3.9+
+- Ollama: The easiest way to run local LLMs.
+  - Installation: Download the installer for macOS or Linux from the Ollama website.
+
+### Step-by-Step Installation
+
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/YourUsername/PromptPandemic-DynamicFormBuilder.git
+   cd PromptPandemic-DynamicFormBuilder
+   ```
+
+2. **Install Python Dependencies**
+   Create and activate a virtual environment, then install the necessary Python packages:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+3. **Download the LLama 3 Model (CRITICAL)**
+   This project requires the Llama 3 model to be running locally.
+
+   - Start the Ollama Server: Open a separate terminal window and run this command. Keep this window open for the entire time you are using the app.
+     ```bash
+     ollama serve
+     ```
+
+   - Pull the Model: In a third terminal window, download the model:
+     ```bash
+     ollama pull llama3
+     ```
+
+4. **Run the Application**
+   Once the model pull is complete and the Ollama server is running, you can launch the app:
+   ```bash
+   streamlit run app.py
+   ```
+
+   Your browser will automatically open the application at http://localhost:8501.
 
 ## 🌟 Features
 
@@ -29,8 +90,8 @@ FormForge is an intelligent form generation application that uses AI to create d
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/Vibe-Coding-2025---PromptPandemic.git
-   cd Vibe-Coding-2025---PromptPandemic
+   git clone https://github.com/yourusername/formforge.git
+   cd formforge
    ```
 
 2. Install required packages:
@@ -45,18 +106,6 @@ FormForge is an intelligent form generation application that uses AI to create d
    ```
 
 ## 💻 Usage
-
-1. Start the Ollama server:
-   ```bash
-   ollama serve
-   ```
-
-2. Run the Streamlit application:
-   ```bash
-   streamlit run app.py
-   ```
-
-3. Open your browser and navigate to http://localhost:8501
 
 ### Form Creation
 1. Enter a natural language description of your desired form
